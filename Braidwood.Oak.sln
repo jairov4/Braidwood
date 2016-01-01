@@ -1,13 +1,18 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
-VisualStudioVersion = 14.0.23107.0
+VisualStudioVersion = 14.0.24720.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Braidwood.Oak", "Braidwood.Oak\Braidwood.Oak.csproj", "{D4881D02-276F-4819-9060-D6D0FD41CE63}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Braidwood.Oak.Test", "Braidwood.Oak.Test\Braidwood.Oak.Test.csproj", "{61546C6A-6849-49B3-B5AF-4125D432194F}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Braidwood.Tristany", "Braidwood.Tristany\Braidwood.Tristany.csproj", "{9A05F2B8-5E58-46DB-BF3D-F163A832CBE2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{3DD655DC-8A65-4205-8B5A-9BF22ED3A74C}"
+	ProjectSection(SolutionItems) = preProject
+		appveyor.yml = appveyor.yml
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

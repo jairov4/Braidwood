@@ -18,39 +18,51 @@ namespace Braidwood.Tristany
 	/// </summary>
 	/// <typeparam name="TKey">Type of the key</typeparam>
 	/// <typeparam name="TValue">Type of the value</typeparam>
-	public class TristanySortedDictionary<TKey, TValue> : ISortedDictionary<TKey, TValue>
+	public abstract class AdoNetSortedDictionaryBase<TKey, TValue> : ISortedDictionary<TKey, TValue>
 	{
 		public IDbConnection Db { get; }
-		public string DictionaryName { get; }
+		
 		public IValueFormatter Formatter { get; }
+
 		public DbCommandBuilder Builder { get; }
 
-		public TristanySortedDictionary(string dictionaryName, IDbConnection db, IValueFormatter formatter,
+		public string EscapedTableName { get; }
+
+		public string TableName { get; }
+
+		public string EscapedKeyColumnName { get; }
+
+		public string EscapedValueColumnName { get; }
+
+		protected AdoNetSortedDictionaryBase(string dictionaryName, IDbConnection db, IValueFormatter formatter,
 			DbCommandBuilder commandBuilder)
 		{
 			Requires(!string.IsNullOrWhiteSpace(dictionaryName));
 			Requires(db != null);
 			Requires(formatter != null);
 			Requires(commandBuilder != null);
-
+			
 			Formatter = formatter;
 			Builder = commandBuilder;
 			Db = db;
-			DictionaryName = EscapeIdentifier(dictionaryName);
+			TableName = dictionaryName;
+			EscapedTableName = EscapeIdentifier(dictionaryName);
+			EscapedKeyColumnName = EscapeIdentifier("Key");
+			EscapedValueColumnName = EscapeIdentifier("Value");
 		}
 
 		public IEnumerable<TKey> KeysStream
 		{
 			get
 			{
-				var cmd = CreateCommand("SELECT [Key] FROM @tableName ORDER BY [Key] ASC");
+				using (var cmd = CreateCommand($"SELECT {EscapedKeyColumnName} FROM {EscapedTableName} ORDER BY {EscapedKeyColumnName} ASC"))
 				using (var dataReader = cmd.ExecuteReader())
 				{
 					while (dataReader.Read())
 					{
 						var values = new object[1];
 						dataReader.GetValues(values);
-						var key = (TKey) values[0];
+						var key = (TKey)values[0];
 						yield return key;
 					}
 				}
@@ -61,7 +73,7 @@ namespace Braidwood.Tristany
 		{
 			get
 			{
-				var cmd = CreateCommand("SELECT [Value] FROM @tableName ORDER BY [Key] ASC");
+				using (var cmd = CreateCommand($"SELECT {EscapedValueColumnName} FROM {EscapedTableName} ORDER BY {EscapedKeyColumnName} ASC"))
 				using (var dataReader = cmd.ExecuteReader())
 				{
 					while (dataReader.Read())
@@ -77,7 +89,7 @@ namespace Braidwood.Tristany
 
 		public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
 		{
-			var cmd = CreateCommand("SELECT [Key], [Value] FROM @tableName ORDER BY [Key] ASC");
+			using (var cmd = CreateCommand($"SELECT {EscapedKeyColumnName}, {EscapedValueColumnName} FROM {EscapedTableName} ORDER BY {EscapedKeyColumnName} ASC"))
 			using (var dataReader = cmd.ExecuteReader())
 			{
 				while (dataReader.Read())
@@ -100,32 +112,35 @@ namespace Braidwood.Tristany
 
 		public void Add(KeyValuePair<TKey, TValue> item)
 		{
-			var cmd = CreateCommand("INSERT INTO @tableName ([Key], [Value]) VALUES (@key, @value)",
-				new Dictionary<string, object>
-				{
-					{"key", item.Key},
-					{"value", Formatter.ToStorage(item.Value)}
-				});
-			cmd.ExecuteNonQuery();
+			var args = new Dictionary<string, object>
+			{
+				{"key", item.Key},
+				{"value", Formatter.ToStorage(item.Value)}
+			};
+			using (var cmd = CreateCommand($"INSERT INTO {EscapedTableName} ({EscapedKeyColumnName}, {EscapedValueColumnName}) VALUES (@key, @value)", args))
+			{
+				cmd.ExecuteNonQuery();
+			}
 			Assert(Count >= 1);
 		}
 
 		public void Clear()
 		{
-			var cmd = CreateCommand("TRUNCATE TABLE @tableName");
-			cmd.ExecuteNonQuery();
-
+			using (var cmd = CreateCommand($"DELETE FROM {EscapedTableName}"))
+			{
+				cmd.ExecuteNonQuery();
+			}
 			Assert(Count == 0);
 		}
 
 		public bool Contains(KeyValuePair<TKey, TValue> item)
 		{
-			var cmd = CreateCommand("SELECT TOP 1 1 FROM @tableName WHERE [Key]=@key AND [Value]=@value",
-				new Dictionary<string, object>
-				{
-					{"key", item.Key},
-					{"value", Formatter.ToStorage(item.Value)}
-				});
+			var args = new Dictionary<string, object>
+			{
+				{"key", item.Key},
+				{"value", Formatter.ToStorage(item.Value)}
+			};
+			using (var cmd = CreateCommand($"SELECT TOP 1 1 FROM {EscapedTableName} WHERE {EscapedKeyColumnName}=@key AND {EscapedValueColumnName}=@value", args))
 			using (var reader = cmd.ExecuteReader())
 			{
 				return reader.Read();
@@ -145,24 +160,28 @@ namespace Braidwood.Tristany
 
 		public bool Remove(KeyValuePair<TKey, TValue> item)
 		{
-			var cmd = CreateCommand("DELETE FROM @tableName WHERE [Key]=@key AND [Value]=@value",
-				new Dictionary<string, object>
-				{
-					{"key", item.Key},
-					{"value", Formatter.ToStorage(item.Value)}
-				});
-			return cmd.ExecuteNonQuery() > 0;
+			var args = new Dictionary<string, object>
+			{
+				{"key", item.Key},
+				{"value", Formatter.ToStorage(item.Value)}
+			};
+			using (var cmd = CreateCommand($"DELETE FROM {EscapedTableName} WHERE {EscapedKeyColumnName}=@key AND {EscapedValueColumnName}=@value", args))
+			{
+				return cmd.ExecuteNonQuery() > 0;
+			}
 		}
 
-		public int Count
+		public virtual int Count
 		{
 			get
 			{
-				var cmd = CreateCommand(@"SELECT SUM(row_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID('@tableName') AND index_id < 2 GROUP BY OBJECT_NAME(object_id)");
-				var result = cmd.ExecuteScalar();
-				var count = (int) (long) result;
-				Assert(count >= 0);
-				return count;
+				using (var cmd = CreateCommand($"SELECT COUNT({EscapedKeyColumnName}) FROM {EscapedTableName}"))
+                {
+					var result = cmd.ExecuteScalar();
+					var count = Convert.ToInt32(result);
+					Assert(count >= 0);
+					return count;
+				}
 			}
 		}
 
@@ -170,11 +189,8 @@ namespace Braidwood.Tristany
 
 		public bool ContainsKey(TKey key)
 		{
-			var cmd = CreateCommand("SELECT TOP 1 1 FROM @tableName WHERE [Key]=@key",
-				new Dictionary<string, object>
-				{
-					{"key", key}
-				});
+			var args = new Dictionary<string, object> { {"key", key} };
+			using (var cmd = CreateCommand($"SELECT TOP 1 1 FROM {EscapedTableName} WHERE {EscapedKeyColumnName}=@key", args))
 			using (var reader = cmd.ExecuteReader())
 			{
 				return reader.NextResult();
@@ -183,32 +199,32 @@ namespace Braidwood.Tristany
 
 		public void Add(TKey key, TValue value)
 		{
-			var cmd = CreateCommand("INSERT INTO @tableName ([Key], [Value]) VALUES (@key, @value)",
-				new Dictionary<string, object>
-				{
-					{"key", key},
-					{"value", Formatter.ToStorage(value)}
-				});
+			var args = new Dictionary<string, object>
+			{
+				{"key", key},
+				{"value", Formatter.ToStorage(value)}
+			};
+			var cmd = CreateCommand($"INSERT INTO {EscapedTableName} ({EscapedKeyColumnName}, {EscapedValueColumnName}) VALUES (@key, @value)", args);
 			cmd.ExecuteNonQuery();
 		}
 
 		public bool Remove(TKey key)
 		{
-			var cmd = CreateCommand("DELETE FROM @tableName WHERE [Key]=@key",
-				new Dictionary<string, object>
-				{
-					{"key", key}
-				});
+			var args = new Dictionary<string, object>
+			{
+				{"key", key}
+			};
+			var cmd = CreateCommand($"DELETE FROM {EscapedTableName} WHERE {EscapedKeyColumnName}=@key", args);
 			return cmd.ExecuteNonQuery() > 0;
 		}
 
 		public bool TryGetValue(TKey key, out TValue value)
 		{
-			var cmd = CreateCommand("SELECT [Value] FROM @tableName WHERE [Key]=@key ORDER BY [Key] ASC",
-				new Dictionary<string, object>
-				{
-					{"key", key}
-				});
+			var args = new Dictionary<string, object>
+			{
+				{"key", key}
+			};
+			var cmd = CreateCommand($"SELECT {EscapedValueColumnName} FROM {EscapedTableName} WHERE {EscapedKeyColumnName}=@key ORDER BY {EscapedKeyColumnName} ASC", args);
 			using (var dataReader = cmd.ExecuteReader())
 			{
 				while (dataReader.Read())
@@ -247,26 +263,8 @@ namespace Braidwood.Tristany
 			Assert(dictionaryName != null);
 			return dictionaryName;
 		}
-
-		public static void CreateTable(IDbConnection connection, string dictionaryName, DbCommandBuilder commandBuilder,
-			bool inMemory = false)
-		{
-			Requires(connection != null);
-			Requires(!string.IsNullOrWhiteSpace(dictionaryName));
-			Requires(commandBuilder != null);
-
-			dictionaryName = commandBuilder.QuoteIdentifier(dictionaryName);
-			var cmdText = "CREATE TABLE @tableName ([Key] " + ResolveType(typeof (TKey)) +
-			              " PRIMARY KEY, [Value] VARBINARY(MAX))";
-			if (inMemory)
-			{
-				cmdText += " WITH (MEMORY_OPTIMIZED = ON, DURABILITY = SCHEMA_AND_DATA)";
-			}
-			var cmd = CreateCommand(connection, dictionaryName, cmdText);
-			cmd.ExecuteNonQuery();
-		}
-
-		private static string ResolveType(Type keyType)
+		
+		protected virtual string ResolveType(Type keyType)
 		{
 			Requires(keyType != null);
 
@@ -279,25 +277,24 @@ namespace Braidwood.Tristany
 			throw new NotSupportedException("Tipo de llave no soportado: " + keyType.FullName);
 		}
 
-		protected IDbCommand CreateCommand(string query, Dictionary<string, object> parameters = null)
+		protected IDbCommand CreateCommand(string query, IDictionary<string, object> parameters = null)
 		{
 			Requires(!string.IsNullOrWhiteSpace(query));
 
-			var cmd = CreateCommand(Db, DictionaryName, query, parameters);
+			var cmd = CreateCommand(Db, query, parameters);
+
 			Assert(cmd != null);
 			return cmd;
 		}
 
-		private static IDbCommand CreateCommand(IDbConnection db, string dictionaryName, string query, 
-			Dictionary<string, object> parameters = null)
+		protected IDbCommand CreateCommand(IDbConnection db, string query, IDictionary<string, object> parameters = null)
 		{
 			Requires(db != null);
 			Requires(!string.IsNullOrWhiteSpace(query));
 			
 			var cmd = db.CreateCommand();
-			cmd.CommandText = query.Replace("@tableName", dictionaryName);
+			cmd.CommandText = query;
 			parameters = parameters ?? new Dictionary<string, object>();
-			parameters.Add("tableName", dictionaryName);
 			foreach (var parameter in parameters)
 			{
 				var p = cmd.CreateParameter();
@@ -310,25 +307,22 @@ namespace Braidwood.Tristany
 			return cmd;
 		}
 
-		public static void DropTable(IDbConnection connection, string dictionaryName, DbCommandBuilder commandBuilder)
+		public void DropTable(IDbConnection connection, DbCommandBuilder commandBuilder)
 		{
 			Requires(commandBuilder != null);
-			Requires(!string.IsNullOrWhiteSpace(dictionaryName));
-
-			dictionaryName = commandBuilder.QuoteIdentifier(dictionaryName);
-			var cmd = CreateCommand(connection, dictionaryName, @"DROP TABLE @tableName");
+			
+			var cmd = CreateCommand(connection, $"DROP TABLE {EscapedTableName}");
 			cmd.ExecuteNonQuery();
 		}
 
 		public IEnumerable<KeyValuePair<TKey, TValue>> GetRange(TKey from, TKey to)
 		{
-			var cmd = CreateCommand("SELECT [Key], [Value] FROM @tableName WHERE [Key] BETWEEN @from AND @to ORDER BY [Key] ASC",
-				new Dictionary<string, object>
-				{
-					{"from", from},
-					{"to", to}
-				});
-
+			var args = new Dictionary<string, object>
+			{
+				{"from", @from},
+				{"to", to}
+			};
+			var cmd = CreateCommand($"SELECT {EscapedKeyColumnName}, {EscapedValueColumnName} FROM {EscapedTableName} WHERE {EscapedKeyColumnName} BETWEEN @from AND @to ORDER BY {EscapedKeyColumnName} ASC", args);
 			using (var dataReader = cmd.ExecuteReader())
 			{
 				while (dataReader.Read())

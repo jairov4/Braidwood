@@ -15,10 +15,10 @@ namespace Braidwood.Tristany
 	/// </summary>
 	/// <typeparam name="TKey">The type of the key.</typeparam>
 	/// <typeparam name="TValue">The type of the value.</typeparam>
-	public class TristanyIncrementingSortedDictionary<TKey, TValue> : TristanySortedDictionary<TKey, TValue>,
+	public class SqlCeIncrementingSortedDictionary<TKey, TValue> : SqlCeSortedDictionary<TKey, TValue>,
 		IIncrementingSortedDictionary<TKey, TValue>
 	{
-		public TristanyIncrementingSortedDictionary(string dictionaryName, IDbConnection db, DbCommandBuilder commandBuilder)
+		public SqlCeIncrementingSortedDictionary(string dictionaryName, IDbConnection db, DbCommandBuilder commandBuilder)
 			: base(dictionaryName, db, new BypassValueFormatter(), commandBuilder)
 		{
 			Requires(typeof (TValue) == typeof (int)
@@ -54,13 +54,16 @@ namespace Braidwood.Tristany
 		/// <param name="increment">The increment</param>
 		public void Increment(TKey key, TValue increment)
 		{
-			var cmd = CreateCommand("UPDATE @tableName SET [Val]=[Val]+@inc WHERE [Key]=@key", new Dictionary<string, object>
+			var args = new Dictionary<string, object>
 			{
 				{"key", key},
 				{"inc", increment}
-			});
-			var r = cmd.ExecuteNonQuery();
-			Assert(r > 0);
+			};
+			using (var cmd = CreateCommand($"UPDATE {EscapedTableName} SET {EscapedValueColumnName}={EscapedValueColumnName}+@inc WHERE {EscapedKeyColumnName}=@key", args))
+			{
+				var r = cmd.ExecuteNonQuery();
+				Assert(r > 0);
+			}
 		}
 
 		/// <summary>

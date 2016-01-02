@@ -115,8 +115,10 @@
     <Compile Include="IValueFormatter.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ProtobufValueFormatter.cs" />
-    <Compile Include="TristanyIncrementingSortedDictionary.cs" />
-    <Compile Include="TristanySortedDictionary.cs" />
+    <Compile Include="SqlCeSortedDictionary.cs" />
+    <Compile Include="SqlSortedDictionary.cs" />
+    <Compile Include="SqlCeIncrementingSortedDictionary.cs" />
+    <Compile Include="AdoNetSortedDictionaryBase.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

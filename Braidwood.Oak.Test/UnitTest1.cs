@@ -8,34 +8,60 @@ using Braidwood.Tristany;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Linq;
 using System.Collections.Generic;
+using System.Data;
+using System.Data.Common;
+using System.Data.SqlServerCe;
+using System.IO;
 
 namespace Braidwood.Oak.Test
 {
 	[TestClass]
 	public class UnitTest1
 	{
-		private SqlConnection _db;
-		private SqlCommandBuilder _commandBuilder;
+		private IDbConnection _db;
+		private DbCommandBuilder _commandBuilder;
 		private string _tableName;
-		private TristanySortedDictionary<string, string> _uut;
+		private ISortedDictionary<string, string> _uut;
 
 		[TestInitialize]
 		public void Setup()
 		{
-			_commandBuilder = new SqlCommandBuilder();
 			_tableName = "TD" + Guid.NewGuid().ToString().Replace("-", "");
+			SetupSqlCe();
+		}
+
+		private void SetupSql()
+		{
+			_commandBuilder = new SqlCommandBuilder();
 			_db = new SqlConnection("Server=(localdb)\\ProjectsV12;Database=TestDictionary;Trusted_Connection=True");
 			_db.Open();
 			var formatter = new ProtobufValueFormatter();
-			TristanySortedDictionary<string, string>.CreateTable(_db, _tableName, _commandBuilder, false);
-			_uut = new TristanySortedDictionary<string, string>(_tableName, _db, formatter, _commandBuilder);
+			_uut = new SqlSortedDictionary<string, string>(_tableName, _db, formatter, _commandBuilder, false);
+		}
+
+		private void SetupSqlCe()
+		{
+			_commandBuilder = new SqlCeCommandBuilder();
+			if (File.Exists("TestingData.sdf"))
+			{
+				File.Delete("TestingData.sdf");
+			}
+			var engine = new SqlCeEngine("Data Source=TestingData.sdf;Persist Security Info=False;");
+			engine.CreateDatabase();
+			_db = new SqlCeConnection(engine.LocalConnectionString);
+			_db.Open();
+			var formatter = new ProtobufValueFormatter();
+			_uut = new SqlCeSortedDictionary<string, string>(_tableName, _db, formatter, _commandBuilder);
 		}
 
 		[TestCleanup]
 		public void Teardown()
 		{
-			TristanySortedDictionary<string, string>.DropTable(_db, _tableName, _commandBuilder);
 			_db.Close();
+			if (File.Exists("TestingData.sdf"))
+			{
+				File.Delete("TestingData.sdf");
+			}
 		}
 
 		[TestMethod]
@@ -46,6 +72,7 @@ namespace Braidwood.Oak.Test
 			{
 				_uut.Add("hola" + i, "mundo" + i);
 			}
+
 			Assert.AreEqual(n, _uut.Count);
 		}
 
